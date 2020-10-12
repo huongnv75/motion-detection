@@ -208,7 +208,7 @@ try:
                         recording_event['event_uuid'] = event_uuid
                         recording_event['start_time'] = int(datetime.now().timestamp() *1000)
                         recording_event['status'] = 0
-                        recording_event['thumbnail_url'] = '/images/' + event_uuid
+                        recording_event['thumbnail_url'] = image_file
                         client.publish('recording_event_topic', json.dumps(recording_event))
                         t = WriteImage(image_file, frame)
                         t.write_image()
@@ -262,8 +262,8 @@ try:
                             time_count = 0
                             print('XML write')
                             b_xml = ET.tostring(data)
-                            with open("xml/" + event_uuid + ".xml", "wb") as f:
-                                f.write(b_xml)
+                            #with open("./xml/" + event_uuid + ".xml", "wb") as f:
+                            #    f.write(b_xml)
                 if end_time < 5 and time_count > 300:
                     print("End time 300s")
                     recording_event['end_time'] = int(datetime.now().timestamp() *1000)
@@ -274,18 +274,24 @@ try:
                     start_time = ''
 
                     b_xml = ET.tostring(data)
-                    with open("xml/" + event_uuid + ".xml", "wb") as f:
-                        f.write(b_xml)
+                    #with open("./xml/" + event_uuid + ".xml", "wb") as f:
+                    #    f.write(b_xml)
 
                     start_time = datetime.now()
-                    date_time = start_time.strftime("%m-%d-%Y_%H:%M:%S")
+                    date_time = start_time.strftime("%m%d%Y%H%M%S")
                     event_uuid = channel_id + "_" + date_time
-                    t = WriteImage(event_uuid, frame)
+                    
+                    prefix = "/u02/store/" + channel_id
+                    suffix = "motions/" + event_uuid
+                    image_file = make_path(prefix, suffix, "thumbnail")
+                    create_file(image_file)
+                    t = WriteImage(image_file, frame)
                     t.write_image()
+                    change_permissions_recursive("/u02/store/", stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO) 
                     recording_event['event_uuid'] = event_uuid
-                    recording_event['start_time'] = str(start_time)
+                    recording_event['start_time'] = int(datetime.now().timestamp() *1000)
                     recording_event['status'] = 0
-                    recording_event['thumbnail_url'] = '/images/' + event_uuid
+                    recording_event['thumbnail_url'] = image_file
                     recording_event['end_time'] = ''
                     client.publish('recording_event_topic', json.dumps(recording_event))
 
