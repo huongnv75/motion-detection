@@ -1,10 +1,14 @@
 from aiohttp import web
 import socketio
+from flask import Flask, render_template
+import socketio
 
+sio = socketio.Server(logger=False, async_mode='threading')
+app = Flask(__name__)
+app.wsgi_app = socketio.WSGIApp(sio, app.wsgi_app)
 # https://python-socketio.readthedocs.io/en/latest/server.html
-sio = socketio.AsyncServer()
-app = web.Application()
-sio.attach(app)
+sio = socketio.Server()
+
 
 
 @sio.on('connect', namespace='/motion')
@@ -13,13 +17,13 @@ def connect(sid, environ):
 
 
 @sio.on('my message', namespace='/motion')
-async def message(sid, data):
+def message(sid, data):
     # await sio.emit('reply', room=sid)
-    await sio.emit('reply', data, namespace='/motion')
+    sio.emit('reply', data, namespace='/motion')
     @sio.on(data, namespace='/motion')
-    async def message(sid, message):
-        await sio.emit(data, message, namespace='/motion')
-        session = await sio.get_session(sid)
+    def message(sid, message):
+        sio.emit(data, message, namespace='/motion')
+    session =  sio.get_session(sid)
 
 
 @sio.on('disconnect', namespace='/motion')
@@ -28,12 +32,12 @@ def disconnect(sid):
 
 
 @sio.event
-async def connect(sid, environ):
+def connect(sid, environ):
     # username = authenticate_user(environ)
     username = 'ok'
-    await sio.save_session(sid, {'username': username})
+    sio.save_session(sid, {'username': username})
 
 
 if __name__ == '__main__':
     # web.run_app(app)
-    web.run_app(app, host='0.0.0.0', port=9090)
+    app.run(threaded=True, host='0.0.0.0', port=9090)
