@@ -7,11 +7,12 @@ from shapely.geometry.polygon import Polygon
 
 
 class SingleMotionDetector:
-	def __init__(self, region, accumWeight=0.5):
+	def __init__(self, region, threshold, region_type, accumWeight=0.5):
 		# store the accumulated weight factor
 		self.accumWeight = accumWeight
 		self.region = region
-
+		self.threshold = threshold
+		self.region_type = region_type
 		# initialize the background model
 		self.bg = None
 
@@ -50,10 +51,12 @@ class SingleMotionDetector:
 
 		# otherwise, loop over the contours
 		rect = []
+		thresh_hold = (1-float(self.threshold))*450 + 50
+		region_type = bool(int(self.region_type))
 		for c in cnts:
 			# compute the bounding box of the contour and use it to
 			# update the minimum and maximum bounding box regions
-			if cv2.contourArea(c) < 300:
+			if cv2.contourArea(c) < thresh_hold:
 				continue
 			(x, y, w, h) = cv2.boundingRect(c)
 			# (minX, minY) = (min(minX, x), min(minY, y))
@@ -64,7 +67,7 @@ class SingleMotionDetector:
 
 			for pts in self.region:
 				polygon = Polygon(pts)
-				if polygon.contains(point) == False:
+				if polygon.contains(point) == region_type:
 					continue
 				rect.append({
 					'x': x,
