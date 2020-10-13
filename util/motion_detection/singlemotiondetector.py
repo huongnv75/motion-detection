@@ -25,7 +25,7 @@ class SingleMotionDetector:
 		# average
 		cv2.accumulateWeighted(image, self.bg, self.accumWeight)
 
-	def detect(self, image, tVal=25):
+	def detect(self, image, tVal=127):
 		# compute the absolute difference between the background model
 		# and the image passed in, then threshold the delta image
 		delta = cv2.absdiff(self.bg.astype("uint8"), image)
@@ -72,6 +72,7 @@ class SingleMotionDetector:
 					'w': w,
 					'h': h
 				})
+			print(rect)
 		if len(rect) == 0:
 			return None
 

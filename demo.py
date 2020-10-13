@@ -25,7 +25,7 @@ motion_config = None
 channel = None
 pts2 = None
 camera_id = '42754'
-client = redis.Redis(host='127.0.0.1', port=6379)
+client = redis.Redis(host='10.60.110.163', port=6379)
 if len(sys.argv) == 4:
     progam, src, channel, motion_config = sys.argv
 
@@ -43,7 +43,7 @@ else:
     channel_id = 'hi'
 
 sio = socketio.Client()
-sio.connect('http://localhost:9090', namespaces=['/motion'])
+sio.connect('http://10.60.110.163:9090', namespaces=['/motion'])
 width = None
 height = None
 #width = None if len(sys.argv) <= 1 else int(sys.argv[1])
@@ -261,6 +261,7 @@ def on_connect():
 
         value = np.array(frame).tobytes()
         image = base64.b64encode(value).decode()
+        print(image)
         # print(channel_id)
         sio.emit("hi", image, namespace='/motion')
         # sio.emit(channel_id, image, namespace='/motion')
