@@ -65,7 +65,7 @@ while True:
             motion_config = ''
             motion_config = r.hget(camera_id, 'motion_config')
             print("motion_config---->", motion_config)
-            cmd = 'python3.6 ../demo.py ' + str(src) + ' ' + str(camera_id) + ' ' + str(pick_channel) + ' ' + str(motion_config)
+            cmd = 'python3.6 ../webstreaming.py ' + str(src) + ' ' + str(camera_id) + ' ' + str(pick_channel) + ' ' + str(motion_config)
             #cmd = 'python ok.py ' + str(src) + ' ' + str(camera_id) + ' ' + str(motion_config)
             print("cmd---->", cmd)
             process = subprocess.Popen(cmd, shell=True)
@@ -73,4 +73,3 @@ while True:
             r.hset(key, camera_id, process.pid)
             # time.sleep(20)
             # os.kill(process.pid, signal.SIGINT)
-            # print("delete")
