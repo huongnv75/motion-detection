@@ -1,4 +1,6 @@
 import os, stat
+import pwd
+import grp
 import sys
 import time
 
@@ -22,11 +24,15 @@ import xml.etree.ElementTree as ET
 # cap quyen cho thu muc
 def change_permissions_recursive(path, mode):
     for root, dirs, files in os.walk(path, topdown=False):
+        uid = pwd.getpwnam('monitor').pw_uid
+        gid = grp.getgrnam('monitor').gr_gid
         os.chmod(root, mode)
         for dir in [os.path.join(root, d) for d in dirs]:
             os.chmod(dir, mode)
+            os.chown(dir, uid, gid)
         for file in [os.path.join(root, f) for f in files]:
             os.chmod(file, mode)
+            os.chown(file, uid, gid)
 
 
 # tra ve duong dan den file
@@ -99,10 +105,6 @@ else:
     region = "[[{'x':10,'y':10}, {'x':900, 'y':10}, {'x':900, 'y':500}, {'x':10, 'y':500}]]"
     region_value = ast.literal_eval(region)
 pts = []
-for i in range(len(region_value)):
-    pts.append([])
-    for point in region_value[i]:
-        pts[i].append((point['x'], point['y']))
 # Create video capture object, retrying until successful.
 max_sleep = 5.0
 cur_sleep = 0.1
@@ -163,162 +165,187 @@ try:
             time_frame_xml = ''
             count_1s = 0
             time_start_frame = ''
+            count_frame = 0
+            count_milisecond = 0
+            start_count_milisecond = ''
+            check_region = 0
             while True:
                 status, frame = cap.read()
-                if frame is None:
-                    fail_count = fail_count + 1
-                    time.sleep(0.5)
-                    if fail_count > 2:
-                        cap.release()
-                        cap = cv2.VideoCapture(rtsp)
-                        fail_count = 0
-                    continue
-                frame_count += 1
-                # status = cv2.imwrite('images/' + str(1) + '.jpg', frame)
-                # print(status)
-                # if frame_count % 5 == 0:
-                height, width = frame.shape[:2]
+                if motion_config['interval_type'] == "0":
+                    count_frame = count_frame + 1
+                    if count_frame == int(motion_config['interval_value']):
+                        count_frame = 0
+                else:
+                    if start_count_milisecond == '':
+                        start_count_milisecond = datetime.now()
+                    else:
+                        t = datetime.now() - start_count_milisecond
+                        count_milisecond = decimal.Decimal(t.seconds)*1000
+                        if count_milisecond >= int(motion_config['interval_value']):
+                            count_milisecond = 0
+                            start_count_milisecond = ''
+                if count_frame == 0 and count_milisecond == 0:
+                    if frame is None:
+                        fail_count = fail_count + 1
+                        time.sleep(0.5)
+                        if fail_count > 2:
+                            cap.release()
+                            cap = cv2.VideoCapture(rtsp)
+                            fail_count = 0
+                        continue
+                    frame_count += 1
+                    # status = cv2.imwrite('images/' + str(1) + '.jpg', frame)
+                    # print(status)
+                    # if frame_count % 5 == 0:
+                    height, width = frame.shape[:2]
+                    frame = imutils.resize(frame, width=int(width*int(motion_config['detect_resolution'])/100))
+                    height, width = frame.shape[:2]
+                    if check_region == 0:
+                        for i in range(len(region_value)):
+                            pts.append([])
+                            for point in region_value[i]:
+                                pts[i].append((point['x']*height/250, point['y']*width/435))
+                        check_region = 1
 
-                frame = imutils.resize(frame, width=int(width*int(motion_config['detect_resolution'])/100))
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    gray = cv2.GaussianBlur(gray, (7, 7), 0)
+                    # grab the current timestamp and draw it on the frame
+                    # timestamp = datetime.now()
 
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                gray = cv2.GaussianBlur(gray, (7, 7), 0)
-                # grab the current timestamp and draw it on the frame
-                # timestamp = datetime.now()
+                    if total > 0:
+                        # detect motion in the image
+                        motion = md.detect(gray)
+                        # cehck to see if motion was found in the frame
+                        if motion is not None:
+                            print("Co motion")
+                            # unpack the tuple and draw the box surrounding the
+                            # "motion area" on the output frame
+                            (thresh, rect) = motion
+                            time_frame_current = datetime.now()
+                            # for r in rect:
+                            #     cv2.rectangle(frame, (r['x'], r['y']), (r['x'] + r['w'], r['y'] + r['h']),
+                            #                   (0, 0, 255), 2)
 
-                if total > 0:
-                    # detect motion in the image
-                    motion = md.detect(gray)
-                    # cehck to see if motion was found in the frame
-                    if motion is not None:
-                        print("Co motion")
-                        # unpack the tuple and draw the box surrounding the
-                        # "motion area" on the output frame
-                        (thresh, rect) = motion
-                        time_frame_current = datetime.now()
-                        for r in rect:
-                            cv2.rectangle(frame, (r['x'], r['y']), (r['x'] + r['w'], r['y'] + r['h']),
-                                          (0, 0, 255), 2)
+                            if start_time == '':
+                                data = ET.Element('data')
+                                start_time = datetime.now()
+                                date_time = start_time.strftime("%m%d%Y%H%M%S")
 
-                        if start_time == '':
-                            data = ET.Element('data')
+                                event_uuid = channel_id + "_" + date_time
+                                prefix = "/u02/store/" + channel_id
+                                suffix = "motions/" + event_uuid
+                                image_file = make_path(prefix, suffix, "thumbnail")
+                                create_file(image_file)
+                                recording_event['event_uuid'] = event_uuid
+                                recording_event['start_time'] = str(int(datetime.now().timestamp() * 1000))
+                                recording_event['status'] = 0
+                                recording_event['thumbnail_url'] = image_file
+                                client.publish('recording_event_topic', json.dumps(recording_event))
+                                print("Start time " + recording_event['start_time'])
+                                # for item in pts:
+                                #     pts2 = np.array(item, np.int32)
+                                #     # pts2 = pts2.reshape((-1, 1, 2))
+                                #     frame = cv2.polylines(frame, [pts2], True, (0, 0, 255), 3)
+                                t = WriteImage(image_file, frame)
+                                t.write_image()
+                                print("Truoc khi co loi")
+                                change_permissions_recursive("/u02/store/", stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                                print("Sau khi co loi")
+                                event_uuid_1 = ET.SubElement(data, 'event_uuid')
+                                event_uuid_1.text = event_uuid
+                                camera_id_1 = ET.SubElement(data, 'camera_id')
+                                camera_id_1.text = camera_id
+                                channel_id_1 = ET.SubElement(data, 'channel_id')
+                                channel_id_1.text = channel_id
+                                status_1 = ET.SubElement(data, 'status')
+                                status_1.text = "1"
+
+                                # xml = WriteXml(1)
+                                # xml.create_object(1, 2, 3, 4)
+                                end_time = 0
+                                time_count = 0
+                                time_start_frame = datetime.now()
+                                time_frame_xml = datetime.now()
+                                # motion_1 = ET.SubElement(motion_list, 'motion')
+                                # motion_1.text = time_frame_xml
+                        if start_time != '':
+                            if count_1s < 1:
+                                t_1s = datetime.now() - time_start_frame
+                                count_1s = decimal.Decimal(t_1s.seconds)
+                                if time_frame_xml == '':
+                                    time_frame_xml = datetime.now()
+                                    motion_list = ET.SubElement(data, 'motion_list')
+                                    motion_list.text = str(time_frame_xml)
+                            else:
+                                time_start_frame = datetime.now()
+                                time_frame_xml = ''
+                                count_1s = 0
+                        if start_time != '':
+                            if motion is not None:
+                                end_time = 0
+                            else:
+                                if end_time < 5:
+                                    t = datetime.now() - time_frame_current
+                                    t_count = datetime.now() - start_time
+                                    end_time = decimal.Decimal(t.seconds)
+                                    time_count = decimal.Decimal(t_count.seconds)
+                                else:
+                                    recording_event['end_time'] = str(int(datetime.now().timestamp() * 1000))
+                                    recording_event['status'] = 1
+                                    client.publish('recording_event_topic', json.dumps(recording_event))
+                                    print("End Time " + recording_event['end_time'])
+                                    recording_event['end_time'] = ''
+                                    end_time = 0
+                                    start_time = ''
+                                    time_count = 0
+                                    print('XML write')
+                                    b_xml = ET.tostring(data)
+                                    # with open("./xml/" + event_uuid + ".xml", "wb") as f:
+                                    #    f.write(b_xml)
+                        if end_time < 5 and time_count > 300:
+                            print("End time 300s")
+                            recording_event['end_time'] = str(int(datetime.now().timestamp() * 1000))
+                            recording_event['status'] = 1
+                            client.publish('recording_event_topic', json.dumps(recording_event))
+                            end_time = 0
+                            time_count = 0
+                            start_time = ''
+
+                            b_xml = ET.tostring(data)
+                            # with open("./xml/" + event_uuid + ".xml", "wb") as f:
+                            #    f.write(b_xml)
+
                             start_time = datetime.now()
                             date_time = start_time.strftime("%m%d%Y%H%M%S")
-
                             event_uuid = channel_id + "_" + date_time
+
                             prefix = "/u02/store/" + channel_id
                             suffix = "motions/" + event_uuid
                             image_file = make_path(prefix, suffix, "thumbnail")
                             create_file(image_file)
-                            recording_event['event_uuid'] = event_uuid
-                            recording_event['start_time'] = str(int(datetime.now().timestamp() * 1000))
-                            recording_event['status'] = 0
-                            recording_event['thumbnail_url'] = image_file
-                            client.publish('recording_event_topic', json.dumps(recording_event))
-                            print("Start time " + recording_event['start_time'])
                             t = WriteImage(image_file, frame)
                             t.write_image()
                             change_permissions_recursive("/u02/store/", stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                            recording_event['event_uuid'] = event_uuid
+                            recording_event['start_time'] = int(datetime.now().timestamp() * 1000)
+                            recording_event['status'] = 0
+                            recording_event['thumbnail_url'] = image_file
+                            recording_event['end_time'] = ''
+                            client.publish('recording_event_topic', json.dumps(recording_event))
 
-                            event_uuid_1 = ET.SubElement(data, 'event_uuid')
-                            event_uuid_1.text = event_uuid
-                            camera_id_1 = ET.SubElement(data, 'camera_id')
-                            camera_id_1.text = camera_id
-                            channel_id_1 = ET.SubElement(data, 'channel_id')
-                            channel_id_1.text = channel_id
-                            status_1 = ET.SubElement(data, 'status')
-                            status_1.text = "1"
+                        # update the background model and increment the total number
+                        # of frames read thus far
+                    md.update(gray)
+                    cv2.putText(frame, time.asctime(time.localtime(time.time())), (10, frame.shape[0] - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
+                    total += 1
+                    hello, frame = cv2.imencode('.jpg', frame)
 
-                            # xml = WriteXml(1)
-                            # xml.create_object(1, 2, 3, 4)
-                            end_time = 0
-                            time_count = 0
-                            time_start_frame = datetime.now()
-                            time_frame_xml = datetime.now()
-                            # motion_1 = ET.SubElement(motion_list, 'motion')
-                            # motion_1.text = time_frame_xml
-                    if start_time != '':
-                        if count_1s < 1:
-                            t_1s = datetime.now() - time_start_frame
-                            count_1s = decimal.Decimal(t_1s.seconds)
-                            if time_frame_xml == '':
-                                time_frame_xml = datetime.now()
-                                motion_list = ET.SubElement(data, 'motion_list')
-                                motion_list.text = str(time_frame_xml)
-                        else:
-                            time_start_frame = datetime.now()
-                            time_frame_xml = ''
-                            count_1s = 0
-                    if start_time != '':
-                        if motion is not None:
-                            end_time = 0
-                        else:
-                            if end_time < 5:
-                                t = datetime.now() - time_frame_current
-                                t_count = datetime.now() - start_time
-                                end_time = decimal.Decimal(t.seconds)
-                                time_count = decimal.Decimal(t_count.seconds)
-                            else:
-                                recording_event['end_time'] = str(int(datetime.now().timestamp() * 1000))
-                                recording_event['status'] = 1
-                                client.publish('recording_event_topic', json.dumps(recording_event))
-                                print("End Time " + recording_event['end_time'])
-                                recording_event['end_time'] = ''
-                                end_time = 0
-                                start_time = ''
-                                time_count = 0
-                                print('XML write')
-                                b_xml = ET.tostring(data)
-                                # with open("./xml/" + event_uuid + ".xml", "wb") as f:
-                                #    f.write(b_xml)
-                    if end_time < 5 and time_count > 300:
-                        print("End time 300s")
-                        recording_event['end_time'] = str(int(datetime.now().timestamp() * 1000))
-                        recording_event['status'] = 1
-                        client.publish('recording_event_topic', json.dumps(recording_event))
-                        end_time = 0
-                        time_count = 0
-                        start_time = ''
-
-                        b_xml = ET.tostring(data)
-                        # with open("./xml/" + event_uuid + ".xml", "wb") as f:
-                        #    f.write(b_xml)
-
-                        start_time = datetime.now()
-                        date_time = start_time.strftime("%m%d%Y%H%M%S")
-                        event_uuid = channel_id + "_" + date_time
-
-                        prefix = "/u02/store/" + channel_id
-                        suffix = "motions/" + event_uuid
-                        image_file = make_path(prefix, suffix, "thumbnail")
-                        create_file(image_file)
-                        t = WriteImage(image_file, frame)
-                        t.write_image()
-                        change_permissions_recursive("/u02/store/", stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-                        recording_event['event_uuid'] = event_uuid
-                        recording_event['start_time'] = int(datetime.now().timestamp() * 1000)
-                        recording_event['status'] = 0
-                        recording_event['thumbnail_url'] = image_file
-                        recording_event['end_time'] = ''
-                        client.publish('recording_event_topic', json.dumps(recording_event))
-
-                    # update the background model and increment the total number
-                    # of frames read thus far
-                md.update(gray)
-                cv2.putText(frame, time.asctime(time.localtime(time.time())), (10, frame.shape[0] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
-                total += 1
-                for item in pts:
-                    pts2 = np.array(item, np.int32)
-                    # pts2 = pts2.reshape((-1, 1, 2))
-                    frame = cv2.polylines(frame, [pts2], True, (0, 0, 255), 3)
-                hello, frame = cv2.imencode('.jpg', frame)
-
-                value = np.array(frame).tobytes()
-                image = base64.b64encode(value).decode()
-                # print(channel_id)
-                # sio.emit("hi", image, namespace='/motion')
-                sio.emit(channel_id, image, namespace='/motion')
+                    value = np.array(frame).tobytes()
+                    image = base64.b64encode(value).decode()
+                    # print(channel_id)
+                    # sio.emit("hi", image, namespace='/motion')
+                    sio.emit(channel_id, image, namespace='/motion')
 
 
         @sio.on('disconnect')
