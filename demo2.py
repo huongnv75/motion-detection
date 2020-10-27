@@ -6,7 +6,7 @@ import sys
 import time
 import os
 import signal
-
+import threading
 from util.motion_detection import WebStream
 
 r = redis.Redis(host="10.60.110.163", port=6379)
@@ -30,15 +30,17 @@ old_process_id = None
 def get_pname(id):
     p = subprocess.Popen(["ps -o cmd= {}".format(id)], stdout=subprocess.PIPE, shell=True)
     return str(p.communicate()[0].decode('utf-8'))
+
+my_threads = {}
+channels = []
 p = r.pubsub()
 p.subscribe('camera_config_topic')
 while True:
     camera = p.get_message()
-    camera = p.get_message()
     if camera and not camera['data'] == 1:
         camera = camera['data'].decode('utf-8')
-        print(camera)
         camera = json.loads(camera)
+        print(camera)
         if camera['action'] == 'ADD_ALL':
             print('add all roi')
         else:
@@ -63,10 +65,8 @@ while True:
             # src = channel_config['ffmpeg_opt']['src']
             # print(src)
             src = r.hget(pick_channel, 'rtsp_server_url').decode("utf-8")
-            print("src----->", src)
             motion_config = ''
             motion_config = r.hget(camera_id, 'motion_config')
-            print("motion_config---->", motion_config)
             # cmd = 'python3.6 ../webstreaming.py ' + str(src) + ' ' + str(camera_id) + ' ' + str(pick_channel) + ' ' + str(motion_config)
             # #cmd = 'python ok.py ' + str(src) + ' ' + str(camera_id) + ' ' + str(motion_config)
             # print("cmd---->", cmd)
@@ -75,5 +75,19 @@ while True:
             # r.hset(key, camera_id, process.pid)
             # time.sleep(20)
             # os.kill(process.pid, signal.SIGINT)
-            webstream = WebStream(src, camera_id, pick_channel, motion_config.decode('utf-8'))
-            webstream.web_streaming()
+            # webstream = WebStream(src, camera_id, pick_channel, motion_config.decode('utf-8'))
+            # webstream.web_streaming()
+            check_channel_active = 0
+            for channel in channels:
+                if channel == pick_channel:
+                    check_channel_active = 1
+            if check_channel_active == 0:
+                channels.append(pick_channel)
+                t = WebStream(src, camera_id, pick_channel, motion_config.decode('utf-8'))
+                t.start()
+                my_threads[pick_channel] = t
+            else:
+                thread1 = my_threads.get(pick_channel)
+                thread1.update(src, camera_id, pick_channel, motion_config.decode('utf-8'))
+
+            print("My threads: ", (my_threads))

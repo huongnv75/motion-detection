@@ -204,7 +204,7 @@ try:
                         for i in range(len(region_value)):
                             pts.append([])
                             for point in region_value[i]:
-                                pts[i].append((point['x']*height/250, point['y']*width/435))
+                                pts[i].append((point['x']*height/230, point['y']*width/405))
                         check_region = 1
 
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)

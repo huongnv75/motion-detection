@@ -19,16 +19,19 @@ import json
 import decimal
 from util.images import WriteImage
 import xml.etree.ElementTree as ET
+import threading
 
 
-class WebStream:
+class WebStream(threading.Thread):
     def __init__(self, src, camera_id, pick_channel, motion_config):
+        threading.Thread.__init__(self)
         self.src = src
         self.camera_id = camera_id
         self.pick_channel = pick_channel
         self.motion_config = motion_config
 
     def change_permissions_recursive(self, path, mode):
+        print("start 1: ", time.time())
         for root, dirs, files in os.walk(path, topdown=False):
             uid = pwd.getpwnam('monitor').pw_uid
             gid = grp.getgrnam('monitor').gr_gid
@@ -59,9 +62,8 @@ class WebStream:
             except OSError as exc:  # Guard against race condition
                 if exc.errno != errno.EEXIST:
                     raise
-    def active_motion(self):
+    def run(self):
         client = redis.Redis(host="localhost", port=6379)
-
         rtsp = None
         motion_config = None
         camera_id = None
@@ -104,7 +106,7 @@ class WebStream:
         if motion_config and motion_config.replace('\\', '').replace('"x"', "'x'").replace('"y"', "'y'") != '[]':
             motion_config = json.loads(motion_config.replace('\\', '').replace('"x"', "'x'").replace('"y"', "'y'"))
             print("=========================================================================")
-            print("motion_confi==========>", motion_config)
+            print("motion_config==========>", motion_config)
             print("====================================xxxxxxxxxxxxxx=====================================")
             region_value = ast.literal_eval(motion_config['region_value'])
         else:
@@ -204,7 +206,7 @@ class WebStream:
                     for i in range(len(region_value)):
                         pts.append([])
                         for point in region_value[i]:
-                            pts[i].append((point['x'] * height / 250, point['y'] * width / 435))
+                            pts[i].append((point['x'] * height / 230, point['y'] * width / 405))
                     check_region = 1
 
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -324,11 +326,11 @@ class WebStream:
                         prefix = "/u02/store/" + channel_id
                         suffix = "motions/" + event_uuid
                         image_file = self.make_path(prefix, suffix, "thumbnail")
-                        self.ecreate_file(image_file)
+                        self.create_file(image_file)
                         t = WriteImage(image_file, frame)
                         t.write_image()
-                        self.change_permissions_recursive("/u02/store/",
-                                                          stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                        # self.change_permissions_recursive("/u02/store/",
+                        #                                   stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
                         recording_event['event_uuid'] = event_uuid
                         recording_event['start_time'] = int(datetime.now().timestamp() * 1000)
                         recording_event['status'] = 0
@@ -350,44 +352,64 @@ class WebStream:
                 # sio.emit("hi", image, namespace='/motion')
                 sio.emit(channel_id, image, namespace='/motion')
 
-    def web_streaming(self):
-        if self.pick_channel:
-            channel_id = self.pick_channel
-        else:
-            channel_id = '49511'
+    def update(self, src, camera_id, pick_channel, motion_config):
+        self.src = src
+        self.camera_id = camera_id
+        self.pick_channel = pick_channel
+        self.motion_config = motion_config
 
-        if self.motion_config:
-            motion_config = self.motion_config
-
-        sio = socketio.Client()
-
-        sio.connect('http://localhost:9090', namespaces=['/motion'])
-        width = None
-        height = None
-        # width = None if len(sys.argv) <= 1 else int(sys.argv[1])
-        # height = None if len(sys.argv) <= 2 else int(sys.argv[2])
-
-        print("==============================================")
-        print("Motion config type: ", motion_config)
-        if motion_config and  motion_config.replace('\\', '').replace('"x"', "'x'").replace('"y"', "'y'") != '[]':
-            motion_config = json.loads(motion_config.replace('\\', '').replace('"x"', "'x'").replace('"y"', "'y'"))
-            print("=========================================================================")
-            print("motion_config==========>", motion_config)
-            print("====================================xxxxxxxxxxxxxx=====================================")
-            region_value = ast.literal_eval(motion_config['region_value'])
-        else:
-            region = "[[{'x':10,'y':10}, {'x':900, 'y':10}, {'x':900, 'y':500}, {'x':10, 'y':500}]]"
-            region_value = ast.literal_eval(region)
-        try:
-            if motion_config['enable_motion'] == "1":
-                @sio.on('connect', namespace='/motion')
-                def on_connect():
-                    print('channel_id---->', channel_id)
-                    sio.emit('my message', channel_id, namespace='/motion')
-                    self.active_motion()
-
-                @sio.on('disconnect')
-                def disconnect(sid):
-                    print('disconnect ', sid)
-        except:
-            print("Caught exception socket.error")
+    # def web_streaming(self):
+    #     if self.pick_channel:
+    #         channel_id = self.pick_channel
+    #     else:
+    #         channel_id = '49511'
+    #
+    #     if self.motion_config:
+    #         motion_config = self.motion_config
+    #
+    #     sio = socketio.Client()
+    #
+    #     sio.connect('http://localhost:9090', namespaces=['/motion'])
+    #     width = None
+    #     height = None
+    #     # width = None if len(sys.argv) <= 1 else int(sys.argv[1])
+    #     # height = None if len(sys.argv) <= 2 else int(sys.argv[2])
+    #
+    #     print("==============================================")
+    #     print("Motion config type: ", motion_config)
+    #     if motion_config and  motion_config.replace('\\', '').replace('"x"', "'x'").replace('"y"', "'y'") != '[]':
+    #         motion_config = json.loads(motion_config.replace('\\', '').replace('"x"', "'x'").replace('"y"', "'y'"))
+    #         print("=========================================================================")
+    #         print("motion_config==========>", motion_config)
+    #         print("====================================xxxxxxxxxxxxxx=====================================")
+    #         region_value = ast.literal_eval(motion_config['region_value'])
+    #     else:
+    #         region = "[[{'x':10,'y':10}, {'x':900, 'y':10}, {'x':900, 'y':500}, {'x':10, 'y':500}]]"
+    #         region_value = ast.literal_eval(region)
+    #     if motion_config['enable_motion'] == "1":
+    #         # client = redis.Redis(host="localhost", port=6379)
+    #         # print("All value of channel: ", client.hvals("channel_id"))
+    #         # channels = client.hvals("channel_id")
+    #         # # check_channel_active = 0
+    #         # for channel in channels:
+    #         #     print("Channel in redis: ", type(channel.decode('utf-8')))
+    #         #     print(("Channel: ", channel.decode('utf-8')))
+    #         #     print('channel_id---->', channel_id)
+    #         #     print("Compare channel_id and channel: ", channel.decode('utf-8') == channel_id)
+    #         #     if channel.decode('utf-8') == channel_id:
+    #         #         print("update motion")
+    #         self.active_motion()
+    #                 # check_channel_active = 1
+    #         # if check_channel_active == 0:
+    #         #     client.hset("channel_id", "channel_id", channel_id)
+    #         #     try:
+    #         #         @sio.on('connect', namespace='/motion')
+    #         #         def on_connect():
+    #         #             sio.emit('my message', channel_id, namespace='/motion')
+    #         #             print("Start Time 1")
+    #         #             self.active_motion()
+    #         #         @sio.on('disconnect')
+    #         #         def disconnect(sid):
+    #         #             print('disconnect ', sid)
+    #         #     except:
+    #         #         print("Caught exception socket.error")
