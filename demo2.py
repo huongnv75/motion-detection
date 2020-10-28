@@ -32,7 +32,6 @@ def get_pname(id):
     return str(p.communicate()[0].decode('utf-8'))
 
 my_threads = {}
-channels = []
 p = r.pubsub()
 p.subscribe('camera_config_topic')
 while True:
@@ -78,16 +77,25 @@ while True:
             # webstream = WebStream(src, camera_id, pick_channel, motion_config.decode('utf-8'))
             # webstream.web_streaming()
             check_channel_active = 0
-            for channel in channels:
+            enable_motion = json.loads(motion_config.decode('utf-8').replace('\\', '').replace('"x"', "'x'").replace('"y"', "'y'"))
+            print("Enable motion: ", enable_motion)
+
+            for channel in my_threads.keys():
                 if channel == pick_channel:
                     check_channel_active = 1
+
             if check_channel_active == 0:
-                channels.append(pick_channel)
-                t = WebStream(src, camera_id, pick_channel, motion_config.decode('utf-8'))
-                t.start()
-                my_threads[pick_channel] = t
+                if enable_motion['enable_motion'] == "1":
+                    t = WebStream(src, camera_id, pick_channel, motion_config.decode('utf-8'), False)
+                    t.start()
+                    my_threads[pick_channel] = t
             else:
                 thread1 = my_threads.get(pick_channel)
-                thread1.update(src, camera_id, pick_channel, motion_config.decode('utf-8'))
-
-            print("My threads: ", (my_threads))
+                if enable_motion['enable_motion'] == "1":
+                    thread1.update(src, camera_id, pick_channel, motion_config.decode('utf-8'))
+                else:
+                    thread1.raise_exception()
+                    thread1.join()
+                    my_threads.pop(pick_channel)
+            print("My thread 1: ", my_threads)
+            print("My threads: ", (threading.enumerate()))
